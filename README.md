@@ -1,2 +1,2 @@
 # automatic-billing-disable-script
-This script lets you achieve, if a given threshold amount in a month increases then automactically your project will be ditached a billing account adn that is on terraform.
+This script ensures that if a specified monthly threshold amount is exceeded, the associated billing account will be automatically detached from the project. This functionality is implemented using Terraform.
