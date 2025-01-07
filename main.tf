@@ -44,7 +44,7 @@ resource "google_billing_budget" "monthly_budget" {
   amount {
     specified_amount {
       currency_code = "USD"
-      units         = 100 # Target amount in specified currency
+      units         = XXX # Target amount in specified currency
     }
   }
 
@@ -104,7 +104,7 @@ resource "google_storage_bucket" "cloud_function_bucket" {
 resource "google_storage_bucket_object" "function_archive" {
   name   = "budget_alert_function.zip"
   bucket = google_storage_bucket.cloud_function_bucket.name
-  source = "/home/utkarsh_pandey/automatic-billing-disable/budget_pub_run/budget_alert_function.zip" # Replace with the correct local file path
+  source = "~/automatic-billing-disable-script/budget_alert_function.zip" # Replace with the correct local file path
 }
 
 # Cloud Function
