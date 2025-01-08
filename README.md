@@ -1,64 +1,52 @@
-# automatic-billing-disable-script
-This script ensures that if a specified monthly threshold amount is exceeded, the associated billing account will be automatically detached from the project. This functionality is implemented using Terraform.
+# Automatic Billing Disable Script
 
-Instructions for Running the Scripts -
+This repository contains a Terraform script that automatically detaches the billing account from a project if the specified monthly threshold is exceeded.
 
-Please find the Google doc link below, which includes all the detailed steps needed to execute the scripts:
-https://docs.google.com/document/d/1vayiDX0cRPV5mK7PEUv-N6Y_ccnDVkXJ8yKuDdeKokM/edit?tab=t.0
+---
 
-# Automatic Billing disable terraform Scripts
+## 📝 Overview
 
-Steps to successfully run terraform script via Cloudshell
+This script automates billing account management by detaching the billing account when a specified threshold is reached. It utilizes GCP resources, Pub/Sub, a Cloud Function, and Terraform.
 
-Prerequisite - 
+---
 
-Owner Privilege users on the project can only be able to execute.
+## 🚀 Getting Started
 
-List of the script and dependencies -
+### **Prerequisite**
+- **Owner Privileges:** Only users with **owner privileges** on the project can execute this script.
 
-	1.  main.py 
-	2.  variables.tf
-	3. terraform.tfvars
-	4.  budget_alert_function.zip 
+---
 
-Script Details - 
+## 📂 Contents
 
-main.py Defines GCP resources including APIs, Pub/Sub, billing budget, storage bucket, Cloud Function, and required IAM roles.
-variables.tf Declares and documents all input variables needed for resource creation, including defaults and descriptions.
-terraform.tfvars Contains configuration variables for billing account, project ID, region, Cloud Function parameters, and other resource names.
-budget_alert_function.zip Contains the Cloud Function code to automatically disable billing when budget thresholds are reached.
-Steps to execute the script - 
-Login to your Google console and set the project - 
+### **Scripts and Dependencies**
+1. **`main.py`**  
+   - Defines GCP resources, including APIs, Pub/Sub, billing budget, storage bucket, Cloud Function, and IAM roles.
+   
+2. **`variables.tf`**  
+   - Documents and declares input variables for resource creation, including defaults and descriptions.
+   
+3. **`terraform.tfvars`**  
+   - Configuration variables for:
+     - Billing account
+     - Project ID
+     - Region
+     - Cloud Function parameters
+     - Resource names
+   
+4. **`budget_alert_function.zip`**  
+   - Contains Cloud Function code to disable billing when budget thresholds are reached.
 
+---
 
-Spin up the cloudshell by clicking Activate cloud shell to the top right corner.
+## 🛠️ Setup and Execution
 
+### Step 1: Environment Setup
+1. Log in to your [Google Cloud Console](https://console.cloud.google.com/).
+2. Activate Cloud Shell by clicking **Activate Cloud Shell** in the top-right corner.
 
-Clone the github repository by running these commands - git clone https://github.com/Cloud-Evonence/automatic-billing-disable-script.git
-
-
-
-Change directory to - cd automatic-billing-disable-script
-Changes needs to be made in main.py -
-Run the command to open in an vim editor - vim main.tf 
-Currency_code: It’s the currency code by default is USD.(If it’s other than USD than needs to changed use - https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/billing_budget#currency_code-1) 
-units: It’s the target amount in specified. (Needs to changed)
-Run the command to save the changes in an vim editor - :wq + Enter		
-
-Changes needs to be made in terraform.tfvars -
-Run the command to open in an vim editor - vim main.tf 
-PROJECT_ID: The ID of your Google Cloud project where the infrastructure will get deployed . (Needs to changed)
-Billing account: The billing account ID with the Google Cloud project is attached. (Needs to changed)
-Run the command to save the changes in an vim editor - :wq + Enter
-
-No change needs to be made in variable.tf-
-Make sure budget_alert_function.zip file should be in same directory as other 3 files-
-Command to execute this scripts - 
-terraform init
-terraform plan
-terraform apply
-Provide Yes/Y to every prompt pop up till completion of script. 
-
-
-
-
+### Step 2: Clone the Repository
+Run the following commands in Cloud Shell:  
+```bash
+git clone https://github.com/Cloud-Evonence/automatic-billing-disable-script.git
+cd automatic-billing-disable-script
