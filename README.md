@@ -50,3 +50,66 @@ Run the following commands in Cloud Shell:
 ```bash
 git clone https://github.com/Cloud-Evonence/automatic-billing-disable-script.git
 cd automatic-billing-disable-script
+```
+### Step 3: Edit **`main.py`** 
+Run the following commands in Cloud Shell:
+```bash
+vim main.tf
+```
+Update the following fields:
+ - Currency Code:
+     - Default: USD
+     - Change if your project uses a different currency. Refer to the Terraform Docs, link - https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/billing_budget#currency_code-1
+ - Units:
+     - Specify the target budget amount.
+
+Run the following commands in Cloud Shell to save the file:
+ ```bash
+ :wq
+ ```
+### Step 4: Edit **`terraform.tfvars`**
+Run the following commands in Cloud Shell:
+```bash
+vim terraform.tfvars
+```
+Update the following fields:
+  - Project_ID:
+     - Your Google Cloud project ID.
+  - Billing Account:
+     - Your Google Cloud billing account ID.
+Save and Close the file:
+```bash
+ :wq
+```
+
+### Step 5: Confirm File Placement 
+Ensure that **`budget_alert_function.zip`**  is in the same directory as the other three files.
+
+### Step 6: Initialize Terraform
+Run the following commands in Cloud Shell:
+```bash
+terraform init
+```
+
+### Step 7: Plan the Deployment Terraform
+Run the following commands in Cloud Shell:
+```bash
+terraform plan
+```
+
+### Step 8: Apply the Terraform Script
+Run the following commands in Cloud Shell:
+```bash
+terraform apply
+```
+
+### Step 9: Verify the Setup
+Update the following fields:
+  - Open the Google Cloud Console 
+  - Navigate to the Billing section
+  - Check if the billing budget and associated resources (Cloud Function, Pub/Sub topic, etc.) have been successfully created.
+
+## 📖 Additional Resources
+For detailed instructions, refer to the Google Doc - https://docs.google.com/document/d/1vayiDX0cRPV5mK7PEUv-N6Y_ccnDVkXJ8yKuDdeKokM/edit?tab=t.0
+
+
