@@ -104,7 +104,7 @@ resource "google_storage_bucket" "cloud_function_bucket" {
 resource "google_storage_bucket_object" "function_archive" {
   name   = "budget_alert_function.zip"
   bucket = google_storage_bucket.cloud_function_bucket.name
-  source = "~/automatic-billing-disable-script/budget_alert_function.zip" # Replace with the correct local file path
+  source = "./script/budget_alert_function.zip" # Replace with the correct local file path
 }
 
 # Cloud Function
