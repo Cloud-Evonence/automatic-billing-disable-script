@@ -94,11 +94,16 @@ resource "google_project_iam_binding" "billing_project_manager_binding" {
   ]
 }
 
-# Cloud Storage Bucket for Cloud Function
+# Generate a random ID for the bucket suffix
+resource "random_id" "bucket_suffix" {
+  byte_length = 4  # Generates an 8-character hex string
+}
+
+# Create a Google Cloud Storage bucket with a unique name
 resource "google_storage_bucket" "cloud_function_bucket" {
-  name          = var.cloud_function_bucket_name
-  location      = var.region
-  force_destroy = true
+  name     = "${var.cloud_function_bucket_prefix}-${random_id.bucket_suffix.hex}"
+  location = var.region
+  storage_class = "STANDARD"
 }
 
 resource "google_storage_bucket_object" "function_archive" {

@@ -23,9 +23,10 @@ variable "region" {
   default     = "us-central1"
 }
 
-variable "cloud_function_bucket_name" {
-  description = "The name of the Cloud Storage bucket to store the Cloud Function code."
-  default     = null
+# Cloud Function bucket prefix (static part of the bucket name)
+variable "cloud_function_bucket_prefix" {
+  description = "Prefix for the Cloud Storage bucket name"
+  type        = string
 }
 
 variable "cloud_function_runtime" {

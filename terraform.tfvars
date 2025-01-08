@@ -1,10 +1,10 @@
 # terraform.tfvars
-billing_account_id       = "012E6E-8A3079-9A6E8B"
-project_id               ="experiments-playground-436812"
+billing_account_id       = "XXXX-XXXX-XXXX-XXXX"
+project_id               ="project_id"
 region                   ="us-central1"
 pubsub_topic_name        ="billing-disable-topic"
 pubsub_subscription_name ="billing-disable-subscription"
-cloud_function_bucket_name ="billing-disable-cloud-function-testing-bucket"
+cloud_function_bucket_prefix ="billing-disable-cloud-function"
 cloud_function_runtime     ="python311"
 cloud_function_entry_point ="stop_billing"
 cloud_function_memory      = 256
