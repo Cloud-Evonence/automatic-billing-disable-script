@@ -87,7 +87,7 @@ resource "google_service_account" "cloud_function_service_account" {
 # Bind Billing Project Manager Role to Service Account
 resource "google_project_iam_binding" "billing_project_manager_binding" {
   project = var.project_id
-  role    = "roles/viewer"
+  role    = "roles/billing.projectManager"
 
   members = [
     "serviceAccount:${google_service_account.cloud_function_service_account.email}"
