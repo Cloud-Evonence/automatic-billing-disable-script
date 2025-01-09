@@ -103,8 +103,6 @@ Run the following commands in Cloud Shell:
 terraform apply
 ```
 
---
-
 ### Step 9: Verify the Setup
 Update the following fields:
   - Open the Google Cloud Console 
@@ -117,3 +115,4 @@ Update the following fields:
 For detailed instructions, refer to the Google Doc - https://docs.google.com/document/d/1vayiDX0cRPV5mK7PEUv-N6Y_ccnDVkXJ8yKuDdeKokM/edit?tab=t.0
 
 ---
+
