@@ -17,6 +17,7 @@ resource "google_project_service" "enable_services" {
     "pubsub.googleapis.com",
     "run.googleapis.com",
     "eventarc.googleapis.com"
+    "billingbudgets.googleapis.com"
   ])
   project  = var.project_id
   service  = each.key
