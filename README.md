@@ -55,10 +55,13 @@ cd automatic-billing-disable-script
 ### Step 3: Bootstrap & Deploy with **`deploy.sh`** 
 Run the following commands in Cloud Shell:
 ```bash
-export PROJECT="my-real-project-id"
+export PROJECT="my-real-project-id" 
+```
+```bash
 chmod +x deploy.sh
 ./deploy.sh 
 ```
+
 > **Note:** You will be prompted for your billing account ID, project ID, budget amount, and currency during execution.
 
 Update the following fields:
