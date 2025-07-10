@@ -55,9 +55,7 @@ cd automatic-billing-disable-script
 ### Step 3: Bootstrap & Deploy with **`deploy.sh`** 
 Run the following commands in Cloud Shell:
 
-Update the following fields:
-  - my-project_id:
-     - Your Google Cloud project ID.
+Replace "my-project_id" with your Google Cloud project ID:
 ```bash
 export PROJECT="my-project-id" 
 ```
