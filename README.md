@@ -57,7 +57,7 @@ Run the following commands in Cloud Shell:
 
 Replace "my-project_id" with your Google Cloud project ID:
 ```bash
-export PROJECT="my-project-id" 
+gcloud config set project "my-project-id" 
 ```
 ```bash
 chmod +x deploy.sh
