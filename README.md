@@ -69,7 +69,7 @@ chmod +x deploy.sh
 Update the following fields:
   - Billing Account:
      - Your Google Cloud billing account ID.
-  - Units:
+  - Budget Amount:
      - Specify the target budget amount.
  - Currency Code:
      - Default: USD
