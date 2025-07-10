@@ -26,16 +26,17 @@ This script automates billing account management by detaching the billing accoun
 2. **`variables.tf`**  
    - Documents and declares input variables for resource creation, including defaults and descriptions.
    
-3. **`terraform.tfvars`**  
-   - Configuration variables for:
-     - Billing account
-     - Project ID
-     - Region
-     - Cloud Function parameters
-     - Resource names
-   
-4. **`budget_alert_function.zip`**  
+3. **`deploy.sh`**  
+   - Bootstrap & deploy script which:
+      - Creates (or verifies) the GCS bucket for Terraform state and enables uniform ACLs and versioning  
+      - Initializes Terraform with the correct backend  
+      - Applies the Terraform configuration with `--auto-approve`
+
+4. **`backend.tf`**  
    - Contains Cloud Function code to disable billing when budget thresholds are reached.
+   
+5. **`budget_alert_function.zip`**  
+   - Configures the Terraform backend, specifying the GCS bucket, prefix, and state locking settings.
 
 ---
 
