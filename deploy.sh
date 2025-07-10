@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # —— Configuration —— 
-PROJECT="project_id"
+PROJECT="${PROJECT}"
 REGION="us-central1"
 BUCKET="terraform-state-${PROJECT}"   # or any fixed name you like
 
