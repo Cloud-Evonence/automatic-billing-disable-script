@@ -69,11 +69,12 @@ chmod +x deploy.sh
 Update the following fields:
   - Billing Account:
      - Your Google Cloud billing account ID.
+  - Units:
+     - Specify the target budget amount.
  - Currency Code:
      - Default: USD
      - Change if your project uses a different currency. Refer to the Terraform Docs, link - https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/billing_budget#currency_code-1
- - Units:
-     - Specify the target budget amount.
+
 
 ### Step 4: Verify the Setup
 Update the following fields:
