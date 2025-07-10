@@ -67,8 +67,6 @@ chmod +x deploy.sh
 > **Note:** You will be prompted for your billing account ID, project ID, budget amount, and currency during execution.
 
 Update the following fields:
-  - Project_ID:
-     - Your Google Cloud project ID.
   - Billing Account:
      - Your Google Cloud billing account ID.
  - Currency Code:
