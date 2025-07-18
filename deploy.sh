@@ -19,7 +19,6 @@ BUCKET="terraform-state-${PROJECT}"
 if ! gsutil ls -b "gs://$BUCKET" >/dev/null 2>&1; then
   echo "🚀 Creating bucket gs://$BUCKET in $TF_VAR_region…"
   gsutil mb -p "$PROJECT" -l "$TF_VAR_region" "gs://$BUCKET"
-  gsutil uniformbucketlevelaccess set on "gs://$BUCKET"
   gsutil versioning set on "gs://$BUCKET"
 else
   echo "✅ Bucket gs://$BUCKET already exists"
