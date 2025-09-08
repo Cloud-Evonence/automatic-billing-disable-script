@@ -13,7 +13,7 @@ export TF_VAR_project_id="$PROJECT"
 
 # —— 2) Other defaults —— 
 : "${TF_VAR_region:=us-central1}"
-BUCKET="terraform-state-${PROJECT}"
+BUCKET="terraform-state-billing-detach-${PROJECT}"
 
 # —— 3) Ensure the bucket exists —— 
 if ! gsutil ls -b "gs://$BUCKET" >/dev/null 2>&1; then
