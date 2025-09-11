@@ -109,6 +109,7 @@ resource "google_storage_bucket" "cloud_function_bucket" {
   name          = "${var.cloud_function_bucket_prefix}-${random_id.bucket_suffix.hex}"
   location      = var.region
   storage_class = "STANDARD"
+  uniform_bucket_level_access = true
 }
 
 resource "google_storage_bucket_object" "function_archive" {
