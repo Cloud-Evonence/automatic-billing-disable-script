@@ -19,6 +19,10 @@ provider "google" {
 # ──────────────────────────────────────────────────────────────
 resource "google_project_service" "enable_services" {
   for_each = toset([
+    "cloudbilling.googleapis.com"
+    "iam.googleapis.com"
+    "cloudresourcemanager.googleapis.com",
+    "serviceusage.googleapis.com",
     "cloudbuild.googleapis.com",
     "cloudfunctions.googleapis.com",
     "compute.googleapis.com",
