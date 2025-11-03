@@ -11,20 +11,23 @@ fi
 # —— 1) Export for Terraform —— 
 export TF_VAR_project_id="$PROJECT"
 
-# —— 2) Other defaults —— 
+# —— 2) Enabling APIs —— 
+gcloud services enable serviceusage.googleapis.com cloudresourcemanager.googleapis.com cloudbilling.googleapis.com --project "$PROJECT"
+
+# —— 3) Other defaults —— 
 : "${TF_VAR_region:=us-central1}"
 BUCKET="terraform-state-billing-detach-${PROJECT}"
 
-# —— 3) Ensure the bucket exists —— 
+# —— 4) Ensure the bucket exists —— 
 if ! gsutil ls -b "gs://$BUCKET" >/dev/null 2>&1; then
   echo "🚀 Creating bucket gs://$BUCKET in $TF_VAR_region…"
   gsutil mb -p "$PROJECT" -l "$TF_VAR_region" "gs://$BUCKET"
   gsutil versioning set on "gs://$BUCKET"
 else
   echo "✅ Bucket gs://$BUCKET already exists"
-fi
+fi 
 
-# —— 4) Init & Apply Terraform —— 
+# —— 5) Init & Apply Terraform —— 
 terraform init \
   -backend-config="bucket=$BUCKET" \
   -backend-config="prefix=terraform/state"
