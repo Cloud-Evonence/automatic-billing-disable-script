@@ -1,4 +1,4 @@
-# main.tf
+#main.tf
 
 terraform {
   required_providers {
@@ -12,6 +12,23 @@ terraform {
 provider "google" {
   project = var.project_id
   region  = var.region
+}
+
+# ──────────────────────────────────────────────────────────────
+# 0) Param: handle Editor on Default Compute SA → keep | revoke
+# ──────────────────────────────────────────────────────────────
+variable "default_sa_editor_mode" {
+  description = "How to handle roles/editor on Default Compute Engine SA: 'keep' or 'revoke'."
+  type        = string
+  validation {
+    condition     = contains(["keep", "revoke"], var.default_sa_editor_mode)
+    error_message = "Must be one of: keep, revoke."
+  }
+}
+
+locals {
+  keep_editor   = var.default_sa_editor_mode == "keep"
+  revoke_editor = var.default_sa_editor_mode == "revoke"
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -40,15 +57,94 @@ resource "google_project_service" "enable_services" {
 }
 
 # ──────────────────────────────────────────────────────────────
+# 1b) Default Compute SA + IAM bootstrap
+# ──────────────────────────────────────────────────────────────
+data "google_compute_default_service_account" "default" {
+  project    = var.project_id
+  depends_on = [google_project_service.enable_services]
+}
+
+locals {
+  default_compute_sa = data.google_compute_default_service_account.default.email
+}
+
+# Keep permanently: roles/run.invoker (asked)
+resource "google_project_iam_member" "default_sa_run_invoker" {
+  project    = var.project_id
+  role       = "roles/run.invoker"
+  member     = "serviceAccount:${local.default_compute_sa}"
+  depends_on = [google_project_service.enable_services]
+}
+
+# KEEP path: manage Editor via Terraform when mode == keep
+resource "google_project_iam_member" "default_sa_editor_keep" {
+  count     = local.keep_editor ? 1 : 0
+  project   = var.project_id
+  role      = "roles/editor"
+  member    = "serviceAccount:${local.default_compute_sa}"
+  depends_on = [google_project_service.enable_services]
+}
+
+# REVOKE path: grant early via gcloud (so bootstrap can proceed)…
+resource "null_resource" "editor_grant_bootstrap" {
+  count = local.revoke_editor ? 1 : 0
+  triggers = { requested_at = timestamp() }
+
+  depends_on = [
+    google_project_service.enable_services,
+    data.google_compute_default_service_account.default
+  ]
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command = <<-EOC
+      set -euo pipefail
+      gcloud projects add-iam-policy-binding "${var.project_id}" \
+        --member="serviceAccount:${local.default_compute_sa}" \
+        --role="roles/editor" --quiet
+    EOC
+  }
+}
+
+# …and revoke just before the apply completes
+resource "null_resource" "editor_revoke" {
+  count = local.revoke_editor ? 1 : 0
+  triggers = { requested_at = timestamp() }
+  depends_on = [
+    google_cloudfunctions2_function.budget_alert_function,
+    google_billing_budget.monthly_budget,
+    google_monitoring_alert_policy.budget_warning_policy,
+    google_pubsub_subscription.budget_alert_subscription
+  ]
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command = <<-EOC
+      set -euo pipefail
+      gcloud projects remove-iam-policy-binding "${var.project_id}" \
+        --member="serviceAccount:${local.default_compute_sa}" \
+        --role="roles/editor" --quiet || true
+    EOC
+  }
+}
+
+# Anchor to ensure revoke runs last if present
+resource "null_resource" "finalize_editor_mode" {
+  depends_on = [null_resource.editor_revoke]
+}
+
+# ──────────────────────────────────────────────────────────────
 # 2) Pub/Sub for budget alerts
 # ──────────────────────────────────────────────────────────────
 resource "google_pubsub_topic" "budget_alert_topic" {
   name = var.pubsub_topic_name
+  depends_on = [google_project_service.enable_services]
 }
 
 resource "google_pubsub_subscription" "budget_alert_subscription" {
   name  = var.pubsub_subscription_name
   topic = google_pubsub_topic.budget_alert_topic.id
+  depends_on = [google_project_service.enable_services]
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -79,7 +175,10 @@ resource "google_billing_budget" "monthly_budget" {
     schema_version = "1.0"
   }
 
-  depends_on = [google_pubsub_topic.budget_alert_topic]
+  depends_on = [
+    google_pubsub_topic.budget_alert_topic,
+    google_project_service.enable_services
+  ]
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -88,6 +187,7 @@ resource "google_billing_budget" "monthly_budget" {
 resource "google_service_account" "cloud_function_service_account" {
   account_id   = var.cloud_function_service_account_id
   display_name = var.cloud_function_service_account_display_name
+  depends_on = [google_project_service.enable_services]
 }
 
 resource "google_project_iam_binding" "billing_project_manager_binding" {
@@ -96,6 +196,7 @@ resource "google_project_iam_binding" "billing_project_manager_binding" {
   members = [
     "serviceAccount:${google_service_account.cloud_function_service_account.email}",
   ]
+  depends_on = [google_project_service.enable_services]
 }
 
 resource "google_project_iam_binding" "storage_admin_binding" {
@@ -104,6 +205,7 @@ resource "google_project_iam_binding" "storage_admin_binding" {
   members = [
     "serviceAccount:${google_service_account.cloud_function_service_account.email}",
   ]
+  depends_on = [google_project_service.enable_services]
 }
 
 resource "random_id" "bucket_suffix" {
@@ -115,12 +217,14 @@ resource "google_storage_bucket" "cloud_function_bucket" {
   location      = var.region
   storage_class = "STANDARD"
   uniform_bucket_level_access = true
+  depends_on = [google_project_service.enable_services]
 }
 
 resource "google_storage_bucket_object" "function_archive" {
   name   = "budget_alert_function.zip"
   bucket = google_storage_bucket.cloud_function_bucket.name
   source = "./script/budget_alert_function.zip"
+  depends_on = [google_project_service.enable_services]
 }
 
 resource "google_cloudfunctions2_function" "budget_alert_function" {
@@ -163,6 +267,7 @@ resource "google_cloudfunctions2_function" "budget_alert_function" {
   depends_on = [
     google_storage_bucket.cloud_function_bucket,
     google_storage_bucket_object.function_archive,
+    google_project_service.enable_services
   ]
 }
 
@@ -173,6 +278,7 @@ resource "google_cloudfunctions2_function" "budget_alert_function" {
 # Fetch raw IAM policy JSON
 data "google_project_iam_policy" "current" {
   project = var.project_id
+  
 }
 
 locals {
@@ -204,6 +310,7 @@ resource "google_monitoring_notification_channel" "email" {
   labels = {
     email_address = each.key
   }
+  depends_on = [google_project_service.enable_services]
 }
 
 # Log‐based metric for the exact 100% warning
@@ -215,6 +322,7 @@ resource "google_logging_metric" "budget_warning_100pct" {
     AND
     textPayload:"WARNING: You have reached 100% of your budget. Your project will be detached from the billing account imminently if spending continues."
   EOT
+  depends_on = [google_project_service.enable_services]
 }
 
 # Alert Policy fires immediately when metric > 0
@@ -312,4 +420,9 @@ If you encounter any issues or need further assistance, please reply to this ema
 Thank you for your prompt attention to this matter.
     EOD
   }
+  depends_on = [
+    google_project_service.enable_services,
+    google_logging_metric.budget_warning_100pct
+  ]
 }
+
