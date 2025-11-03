@@ -27,8 +27,11 @@ variable "default_sa_editor_mode" {
 }
 
 locals {
-  keep_editor   = var.default_sa_editor_mode == "keep"
-  revoke_editor = var.default_sa_editor_mode == "revoke"
+  keep_editor        = var.default_sa_editor_mode == "keep"
+  revoke_editor      = var.default_sa_editor_mode == "revoke"
+
+  # Common label to apply wherever supported
+  do_not_delete_lbl  = { do-not-delete = "true" }
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -78,16 +81,16 @@ resource "google_project_iam_member" "default_sa_run_invoker" {
 
 # KEEP path: manage Editor via Terraform when mode == keep
 resource "google_project_iam_member" "default_sa_editor_keep" {
-  count     = local.keep_editor ? 1 : 0
-  project   = var.project_id
-  role      = "roles/editor"
-  member    = "serviceAccount:${local.default_compute_sa}"
+  count      = local.keep_editor ? 1 : 0
+  project    = var.project_id
+  role       = "roles/editor"
+  member     = "serviceAccount:${local.default_compute_sa}"
   depends_on = [google_project_service.enable_services]
 }
 
 # REVOKE path: grant early via gcloud (so bootstrap can proceed)…
 resource "null_resource" "editor_grant_bootstrap" {
-  count = local.revoke_editor ? 1 : 0
+  count    = local.revoke_editor ? 1 : 0
   triggers = { requested_at = timestamp() }
 
   depends_on = [
@@ -108,7 +111,7 @@ resource "null_resource" "editor_grant_bootstrap" {
 
 # …and revoke just before the apply completes
 resource "null_resource" "editor_revoke" {
-  count = local.revoke_editor ? 1 : 0
+  count    = local.revoke_editor ? 1 : 0
   triggers = { requested_at = timestamp() }
   depends_on = [
     google_cloudfunctions2_function.budget_alert_function,
@@ -137,13 +140,15 @@ resource "null_resource" "finalize_editor_mode" {
 # 2) Pub/Sub for budget alerts
 # ──────────────────────────────────────────────────────────────
 resource "google_pubsub_topic" "budget_alert_topic" {
-  name = var.pubsub_topic_name
+  name       = var.pubsub_topic_name
+  labels     = local.do_not_delete_lbl
   depends_on = [google_project_service.enable_services]
 }
 
 resource "google_pubsub_subscription" "budget_alert_subscription" {
-  name  = var.pubsub_subscription_name
-  topic = google_pubsub_topic.budget_alert_topic.id
+  name       = var.pubsub_subscription_name
+  topic      = google_pubsub_topic.budget_alert_topic.id
+  # (Subscription labels are not universally supported; leaving off to avoid schema errors)
   depends_on = [google_project_service.enable_services]
 }
 
@@ -187,6 +192,7 @@ resource "google_billing_budget" "monthly_budget" {
 resource "google_service_account" "cloud_function_service_account" {
   account_id   = var.cloud_function_service_account_id
   display_name = var.cloud_function_service_account_display_name
+  # (Service accounts don't support user labels)
   depends_on = [google_project_service.enable_services]
 }
 
@@ -213,17 +219,20 @@ resource "random_id" "bucket_suffix" {
 }
 
 resource "google_storage_bucket" "cloud_function_bucket" {
-  name          = "${var.cloud_function_bucket_prefix}-${random_id.bucket_suffix.hex}"
-  location      = var.region
-  storage_class = "STANDARD"
+  name                        = "${var.cloud_function_bucket_prefix}-${random_id.bucket_suffix.hex}"
+  location                    = var.region
+  storage_class               = "STANDARD"
   uniform_bucket_level_access = true
-  depends_on = [google_project_service.enable_services]
+  labels                      = local.do_not_delete_lbl
+  depends_on                  = [google_project_service.enable_services]
 }
 
 resource "google_storage_bucket_object" "function_archive" {
-  name   = "budget_alert_function.zip"
-  bucket = google_storage_bucket.cloud_function_bucket.name
-  source = "./script/budget_alert_function.zip"
+  name    = "budget_alert_function.zip"
+  bucket  = google_storage_bucket.cloud_function_bucket.name
+  source  = "./script/budget_alert_function.zip"
+  # Use object metadata for a comparable tag
+  metadata = local.do_not_delete_lbl
   depends_on = [google_project_service.enable_services]
 }
 
@@ -231,6 +240,9 @@ resource "google_cloudfunctions2_function" "budget_alert_function" {
   name        = "billing-disable-function"
   location    = var.region
   description = "Cloud Function to handle budget alert notifications"
+
+  # Top-level labels (supported by CFv2) to carry do-not-delete
+  labels = local.do_not_delete_lbl
 
   build_config {
     runtime     = var.cloud_function_runtime
@@ -278,7 +290,6 @@ resource "google_cloudfunctions2_function" "budget_alert_function" {
 # Fetch raw IAM policy JSON
 data "google_project_iam_policy" "current" {
   project = var.project_id
-  
 }
 
 locals {
@@ -294,7 +305,7 @@ locals {
     b.members if b.role == "roles/owner"
   ])
 
-# Combine, keep only user principals, strip the "user:" prefix
+  # Combine, keep only user principals, strip the "user:" prefix
   notification_emails = distinct([
     for p in concat(local.billing_admins, local.project_owners) :
     replace(p, "user:", "")
@@ -310,6 +321,9 @@ resource "google_monitoring_notification_channel" "email" {
   labels = {
     email_address = each.key
   }
+  # Some Monitoring resources support user_labels; notification_channel does in API,
+  # but provider support can vary. If supported in your provider version, uncomment:
+  # user_labels = local.do_not_delete_lbl
   depends_on = [google_project_service.enable_services]
 }
 
@@ -322,6 +336,7 @@ resource "google_logging_metric" "budget_warning_100pct" {
     AND
     textPayload:"WARNING: You have reached 100% of your budget. Your project will be detached from the billing account imminently if spending continues."
   EOT
+  # (Logging metric doesn't support user labels)
   depends_on = [google_project_service.enable_services]
 }
 
@@ -330,6 +345,9 @@ resource "google_monitoring_alert_policy" "budget_warning_policy" {
   display_name = "Budget Hit 100% Warning"
   combiner     = "OR"
   severity     = "CRITICAL"
+
+  # Add user labels here
+  user_labels = local.do_not_delete_lbl
 
   # Condition for Gen2 Functions (runs on Cloud Run)
   conditions {
@@ -356,68 +374,71 @@ resource "google_monitoring_alert_policy" "budget_warning_policy" {
   documentation {
     mime_type = "text/markdown"
     content   = <<-EOD
-# 🚨 Action Required: Project Has Hit 100% of Its Monthly Budget
+
+# 🚨 Action Required: Project Billing Detached (Budget at 100%) 🚨
 
 Hello Team,
 
-Your Google Cloud project has reached **100%** of its allocated monthly budget. Billing will be detached from the project imminently if no action is taken. Please follow the prerequisites and rollback steps below to restore billing and prevent service interruption.
+Your Google Cloud project **`$${PROJECT_ID}`** has reached **100%** of its allocated monthly budget. As a result, **billing has been automatically detached**.
+
+Please follow the steps below using the `reattach-billing.sh` script to safely restore services. This script is designed to re-link the billing account *and* prevent the automation from immediately detaching it again.
 
 ---
 
 ## 📋 Prerequisites
 
-1. **Billing Account ID**  
-   You will need the Billing Account ID you wish to link
+Before you begin, please ensure you have the following:
 
-2. **Required IAM Permissions**  
-- **Owner** or **Billing Admin** on the project  
-- **Billing Account User** on the target billing account  
+1.  **Script Access:** You must have the `reattach-billing.sh` script on your local machine.
+2.  **Billing Account ID:** You will need the **Billing Account ID** (e.g., `0123-4567-8901`) you wish to re-attach.
+3.  **Required IAM Permissions:** Your user account must have:
+    * `roles/billing.projectManager` on the **Project** (`$${PROJECT_ID}`).
+    * `roles/billing.user` on the **target Billing Account**.
+4.  **CLI Setup:** Your Google Cloud SDK must be installed and authenticated:
+    ```bash
+    gcloud auth login
+    gcloud config set project $${PROJECT_ID}
+    ```
 
-3. **gcloud CLI Setup**  
-Ensure you have the Google Cloud SDK installed and are authenticated:
+---
 
-```bash
-gcloud auth login
-gcloud config set project **`$${PROJECT_ID}`**
-```
+## 🔧 Rollback Steps (Using the Script)
 
-## 🔧 Rollback Steps
-1. Re-attach the Billing Account
+1.  **Make the Script Executable**
+    (You only need to do this once)
+    ```bash
+    chmod +x reattach-billing.sh
+    ```
 
-```bash
-gcloud beta billing projects link **`$${PROJECT_ID}`** \
-  --billing-account=**Billing Account ID**  
-```
-This will immediately re-enable billing for your project.
+2.  **Run the Script**
+    This command re-attaches billing non-interactively.
+    
+    > **Note:** Replace with your actual Billing Account ID when prompted. The `--skip-terraform` flag is recommended during this initial fix.
 
-2. Delete the Cloud Function
+    ```bash
+    ./reattach-billing.sh --skip-terraform
+    ```
 
-```bash
-gcloud functions delete billing-disable-function \
-```
-Remove the function that auto-detaches billing so it doesn't immediately fire again.
+3.  **Verify the Output**
+    The script will print the final billing state. Please **confirm that the output shows `True`**:
+    ```text
+    Billing Enabled: True
+    ```
 
-3. Verify Billing Status
+---
 
-```bash
-gcloud beta billing projects describe **`$${PROJECT_ID}`** \
-  --format="value(billingEnabled)"
-```
-Should return TRUE.
+## ⚠️ Next Steps: Prevent Recurrence
 
-4. Tear Down Terraform-Managed Resources
+Once billing is restored, you must update the budget to prevent this from happening again.
 
-```bash
-terraform destroy -auto-approve
-```
-Clean up any remaining infra before redeploying with updated thresholds.
+1.  **Increase Budget Threshold:** Edit your budget threshold amount.
+2.  **Re-deploy:** Please rerun the deployment script to apply your changes.
+    ```bash
+    ./deploy.sh
+    ```
 
-5. Increase Budget Threshold & Re-deploy
-  - Edit your Terraform google_billing_budget.threshold_rules to raise the critical rule above 100%.
+If you encounter any issues, please contact the Evonence Cloud Infrastructure team.
 
-If you encounter any issues or need further assistance, please reply to this email or contact the Cloud Engineering team.
-
-Thank you for your prompt attention to this matter.
     EOD
   }
   depends_on = [
@@ -425,4 +446,3 @@ Thank you for your prompt attention to this matter.
     google_logging_metric.budget_warning_100pct
   ]
 }
-
