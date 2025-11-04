@@ -379,7 +379,7 @@ resource "google_monitoring_alert_policy" "budget_warning_policy" {
 
 Hello Team,
 
-Your Google Cloud project **`$${PROJECT_ID}`** has reached **100%** of its allocated monthly budget. As a result, **billing has been automatically detached**.
+Your Google Cloud project has reached **100%** of its allocated monthly budget. As a result, **billing has been automatically detached**.
 
 Please follow the steps below using the `reattach-billing.sh` script to safely restore services. This script is designed to re-link the billing account *and* prevent the automation from immediately detaching it again.
 
@@ -392,12 +392,12 @@ Before you begin, please ensure you have the following:
 1.  **Script Access:** You must have the `reattach-billing.sh` script on your local machine.
 2.  **Billing Account ID:** You will need the **Billing Account ID** (e.g., `0123-4567-8901`) you wish to re-attach.
 3.  **Required IAM Permissions:** Your user account must have:
-    * `roles/billing.projectManager` on the **Project** (`$${PROJECT_ID}`).
+    * `roles/billing.projectManager` on the **Project**.
     * `roles/billing.user` on the **target Billing Account**.
 4.  **CLI Setup:** Your Google Cloud SDK must be installed and authenticated:
     ```bash
     gcloud auth login
-    gcloud config set project $${PROJECT_ID}
+    gcloud config set project your_project_id
     ```
 
 ---
@@ -416,7 +416,7 @@ Before you begin, please ensure you have the following:
     > **Note:** Replace with your actual Billing Account ID when prompted. The `--skip-terraform` flag is recommended during this initial fix.
 
     ```bash
-    ./reattach-billing.sh --skip-terraform
+    ./reattach-billing.sh 
     ```
 
 3.  **Verify the Output**
