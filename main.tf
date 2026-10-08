@@ -6,12 +6,22 @@ terraform {
       source  = "hashicorp/google"
       version = ">= 4.34.0"
     }
+    time = {
+      source  = "hashicorp/time"
+      version = ">= 0.7.0"
+    }
+    archive = {
+      source  = "hashicorp/archive"
+      version = ">= 2.0.0"
+    }
   }
 }
 
 provider "google" {
-  project = var.project_id
-  region  = var.region
+  project               = var.project_id
+  region                = var.region
+  billing_project       = var.project_id
+  user_project_override = true
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -27,11 +37,18 @@ variable "default_sa_editor_mode" {
 }
 
 locals {
-  keep_editor        = var.default_sa_editor_mode == "keep"
-  revoke_editor      = var.default_sa_editor_mode == "revoke"
+  keep_editor   = var.default_sa_editor_mode == "keep"
+  revoke_editor = var.default_sa_editor_mode == "revoke"
 
   # Common label to apply wherever supported
-  do_not_delete_lbl  = { do-not-delete = "true" }
+  do_not_delete_lbl = {
+    do-not-delete      = "true"
+    guardrails         = "true"
+    guardrails_enabled = "true"
+  }
+
+  budget_amounts = [for k, v in var.budgets : v.amount]
+  min_budget     = min(local.budget_amounts...)
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -53,10 +70,41 @@ resource "google_project_service" "enable_services" {
     "run.googleapis.com",
     "eventarc.googleapis.com",
     "billingbudgets.googleapis.com",
+    "parametermanager.googleapis.com",
+    "secretmanager.googleapis.com",
+    "cloudscheduler.googleapis.com",
   ])
   project            = var.project_id
   service            = each.key
   disable_on_destroy = false
+}
+
+# ──────────────────────────────────────────────────────────────
+# 1a) Enable Cloud Billing Audit Logging for Project
+# ──────────────────────────────────────────────────────────────
+resource "google_project_iam_audit_config" "billing_audit_config" {
+  project = var.project_id
+  service = "cloudbilling.googleapis.com"
+
+  audit_log_config {
+    log_type = "ADMIN_READ"
+  }
+  audit_log_config {
+    log_type = "DATA_READ"
+  }
+  audit_log_config {
+    log_type = "DATA_WRITE"
+  }
+
+  depends_on = [google_project_service.enable_services]
+}
+
+data "google_project" "project" {}
+
+data "archive_file" "function_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/script/function_source"
+  output_path = "${path.module}/script/budget_alert_function.zip"
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -100,7 +148,7 @@ resource "null_resource" "editor_grant_bootstrap" {
 
   provisioner "local-exec" {
     interpreter = ["/bin/bash", "-c"]
-    command = <<-EOC
+    command     = <<-EOC
       set -euo pipefail
       gcloud projects add-iam-policy-binding "${var.project_id}" \
         --member="serviceAccount:${local.default_compute_sa}" \
@@ -116,13 +164,12 @@ resource "null_resource" "editor_revoke" {
   depends_on = [
     google_cloudfunctions2_function.budget_alert_function,
     google_billing_budget.monthly_budget,
-    google_monitoring_alert_policy.budget_warning_policy,
     google_pubsub_subscription.budget_alert_subscription
   ]
 
   provisioner "local-exec" {
     interpreter = ["/bin/bash", "-c"]
-    command = <<-EOC
+    command     = <<-EOC
       set -euo pipefail
       gcloud projects remove-iam-policy-binding "${var.project_id}" \
         --member="serviceAccount:${local.default_compute_sa}" \
@@ -146,38 +193,50 @@ resource "google_pubsub_topic" "budget_alert_topic" {
 }
 
 resource "google_pubsub_subscription" "budget_alert_subscription" {
-  name       = var.pubsub_subscription_name
-  topic      = google_pubsub_topic.budget_alert_topic.id
+  name  = var.pubsub_subscription_name
+  topic = google_pubsub_topic.budget_alert_topic.id
   # (Subscription labels are not universally supported; leaving off to avoid schema errors)
   depends_on = [google_project_service.enable_services]
 }
 
+resource "google_pubsub_topic_iam_member" "billing_pubsub_publisher" {
+  topic  = google_pubsub_topic.budget_alert_topic.name
+  role   = "roles/pubsub.publisher"
+  member = "serviceAccount:billing-budget-alert@system.gserviceaccount.com"
+}
+
 # ──────────────────────────────────────────────────────────────
-# 3) Billing budget with automatic disable
+# 3) Billing budget with automatic disable (Multiple)
 # ──────────────────────────────────────────────────────────────
 resource "google_billing_budget" "monthly_budget" {
+  for_each        = var.budgets
   billing_account = var.billing_account_id
-  display_name    = "Monthly Budget - Automatic Disabling"
+  display_name    = "${each.key} - Monthly Budget - Automatic Disabling"
 
   amount {
     specified_amount {
       currency_code = var.currency
-      units         = var.budget_amount
+      units         = floor(each.value.amount)
+      nanos         = (each.value.amount - floor(each.value.amount)) * 1000000000
     }
   }
 
   budget_filter {
-    projects               = ["projects/${var.project_id}"]
+    projects               = ["projects/${data.google_project.project.number}"]
     credit_types_treatment = "EXCLUDE_ALL_CREDITS"
   }
 
-  threshold_rules { threshold_percent = 0.75 }
-  threshold_rules { threshold_percent = 0.9  }
-  threshold_rules { threshold_percent = 1.0  }
+  dynamic "threshold_rules" {
+    for_each = each.value.thresholds
+    content {
+      threshold_percent = threshold_rules.value
+    }
+  }
 
   all_updates_rule {
-    pubsub_topic   = google_pubsub_topic.budget_alert_topic.id
-    schema_version = "1.0"
+    pubsub_topic                   = google_pubsub_topic.budget_alert_topic.id
+    schema_version                 = "1.0"
+    disable_default_iam_recipients = false
   }
 
   depends_on = [
@@ -185,6 +244,31 @@ resource "google_billing_budget" "monthly_budget" {
     google_project_service.enable_services
   ]
 }
+
+# ──────────────────────────────────────────────────────────────
+# 3a) Hourly Cloud Scheduler for automated Budget syncing
+# ──────────────────────────────────────────────────────────────
+resource "google_cloud_scheduler_job" "hourly_budget_sync" {
+  name        = "do-not-delete-hourly-budget-sync"
+  description = "Hourly trigger to synchronize Cloud Billing Budget targets and state into Parameter Manager"
+  schedule    = "0 * * * *"
+  time_zone   = "UTC"
+
+  pubsub_target {
+    topic_name = google_pubsub_topic.budget_alert_topic.id
+    data       = base64encode(jsonencode({
+      action = "sync_budget_state"
+      source = "cloud_scheduler"
+    }))
+  }
+
+  depends_on = [
+    google_pubsub_topic.budget_alert_topic,
+    google_project_service.enable_services
+  ]
+}
+
+
 
 # ──────────────────────────────────────────────────────────────
 # 4) Cloud Function setup
@@ -196,23 +280,111 @@ resource "google_service_account" "cloud_function_service_account" {
   depends_on = [google_project_service.enable_services]
 }
 
-resource "google_project_iam_binding" "billing_project_manager_binding" {
-  project = var.project_id
-  role    = "roles/billing.projectManager"
-  members = [
-    "serviceAccount:${google_service_account.cloud_function_service_account.email}",
-  ]
+resource "google_parameter_manager_parameter" "billing_state_parameter" {
+  parameter_id = var.billing_state_parameter_id
+  labels       = local.do_not_delete_lbl
+  depends_on   = [google_project_service.enable_services]
+}
+
+resource "google_parameter_manager_parameter_version" "billing_state_initial" {
+  parameter            = google_parameter_manager_parameter.billing_state_parameter.id
+  parameter_version_id = "1"
+  parameter_data = jsonencode({
+    active_limit = local.min_budget
+    status       = "active"
+    month        = ""
+    limits       = local.budget_amounts
+  })
+  lifecycle {
+    ignore_changes = [
+      parameter_data
+    ]
+  }
+}
+
+resource "google_secret_manager_secret" "notification_config_secret" {
+  secret_id = "do-not-delete-billing-notifications"
+  labels    = local.do_not_delete_lbl
+  replication {
+    auto {}
+  }
   depends_on = [google_project_service.enable_services]
 }
 
-resource "google_project_iam_binding" "storage_admin_binding" {
-  project = var.project_id
-  role    = "roles/storage.admin"
-  members = [
-    "serviceAccount:${google_service_account.cloud_function_service_account.email}",
-  ]
+resource "google_secret_manager_secret_version" "notification_config_initial" {
+  secret = google_secret_manager_secret.notification_config_secret.id
+  secret_data = jsonencode({
+    google_chat_webhook_url = var.google_chat_webhook_url
+    smtp_host               = var.smtp_host
+    smtp_port               = var.smtp_port
+    smtp_username           = var.smtp_username
+    smtp_key                = var.smtp_key
+    smtp_sender_email       = var.smtp_sender_email
+    smtp_use_tls            = var.smtp_use_tls
+  })
+  lifecycle {
+    ignore_changes = [
+      secret_data
+    ]
+  }
+}
+
+resource "google_secret_manager_secret_iam_member" "cf_sa_secret_accessor" {
+  secret_id = google_secret_manager_secret.notification_config_secret.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.cloud_function_service_account.email}"
+}
+
+resource "google_project_iam_member" "cf_sa_parameter_accessor" {
+  project    = var.project_id
+  role       = "roles/parametermanager.parameterAccessor"
+  member     = "serviceAccount:${google_service_account.cloud_function_service_account.email}"
   depends_on = [google_project_service.enable_services]
 }
+
+resource "google_project_iam_member" "cf_sa_parameter_version_manager" {
+  project    = var.project_id
+  role       = "roles/parametermanager.parameterVersionManager"
+  member     = "serviceAccount:${google_service_account.cloud_function_service_account.email}"
+  depends_on = [google_project_service.enable_services]
+}
+
+resource "google_project_iam_member" "cf_sa_logging_viewer" {
+  project    = var.project_id
+  role       = "roles/logging.viewer"
+  member     = "serviceAccount:${google_service_account.cloud_function_service_account.email}"
+  depends_on = [google_project_service.enable_services]
+}
+
+resource "google_project_iam_member" "billing_project_manager_binding" {
+  project    = var.project_id
+  role       = "roles/billing.projectManager"
+  member     = "serviceAccount:${google_service_account.cloud_function_service_account.email}"
+  depends_on = [google_project_service.enable_services]
+}
+
+# Real-time Log Sink: forward Billing re-attachment audit events directly to Pub/Sub
+resource "google_logging_project_sink" "billing_reattached_sink" {
+  name        = "do-not-delete-billing-reattached-sink"
+  destination = "pubsub.googleapis.com/${google_pubsub_topic.budget_alert_topic.id}"
+  filter      = <<-EOT
+    protoPayload.serviceName="cloudbilling.googleapis.com"
+    AND (protoPayload.methodName:"UpdateProjectBillingInfo" OR protoPayload.methodName:"AssignResourceToBillingAccount")
+    AND NOT protoPayload.authenticationInfo.principalEmail:"gserviceaccount.com"
+  EOT
+
+  unique_writer_identity = true
+  depends_on             = [google_project_service.enable_services]
+}
+
+resource "google_pubsub_topic_iam_member" "sink_pubsub_publisher" {
+  topic  = google_pubsub_topic.budget_alert_topic.name
+  role   = "roles/pubsub.publisher"
+  member = google_logging_project_sink.billing_reattached_sink.writer_identity
+}
+
+
+
 
 resource "random_id" "bucket_suffix" {
   byte_length = 4
@@ -228,16 +400,16 @@ resource "google_storage_bucket" "cloud_function_bucket" {
 }
 
 resource "google_storage_bucket_object" "function_archive" {
-  name    = "budget_alert_function.zip"
-  bucket  = google_storage_bucket.cloud_function_bucket.name
-  source  = "./script/budget_alert_function.zip"
+  name       = "budget_alert_function-${data.archive_file.function_zip.output_md5}.zip"
+  bucket     = google_storage_bucket.cloud_function_bucket.name
+  source     = data.archive_file.function_zip.output_path
   # Use object metadata for a comparable tag
-  metadata = local.do_not_delete_lbl
-  depends_on = [google_project_service.enable_services]
+  metadata   = local.do_not_delete_lbl
+  depends_on = [google_project_service.enable_services, data.archive_file.function_zip]
 }
 
 resource "google_cloudfunctions2_function" "budget_alert_function" {
-  name        = "billing-disable-function"
+  name        = "do-not-delete-billing-disable-function"
   location    = var.region
   description = "Cloud Function to handle budget alert notifications"
 
@@ -265,7 +437,11 @@ resource "google_cloudfunctions2_function" "budget_alert_function" {
     all_traffic_on_latest_revision = true
 
     environment_variables = {
-      GCP_PROJECT = var.project_id
+      GCP_PROJECT              = var.project_id
+      LOG_EXECUTION_ID         = "true"
+      STATE_PARAMETER_ID       = google_parameter_manager_parameter.billing_state_parameter.parameter_id
+      NOTIFICATION_SECRET_ID   = google_secret_manager_secret.notification_config_secret.secret_id
+      NOTIFICATION_EMAILS      = join(",", local.target_emails)
     }
   }
 
@@ -273,21 +449,25 @@ resource "google_cloudfunctions2_function" "budget_alert_function" {
     trigger_region = var.region
     event_type     = "google.cloud.pubsub.topic.v1.messagePublished"
     pubsub_topic   = google_pubsub_topic.budget_alert_topic.id
-    retry_policy   = "RETRY_POLICY_RETRY"
+    retry_policy   = "RETRY_POLICY_DO_NOT_RETRY"
   }
 
   depends_on = [
     google_storage_bucket.cloud_function_bucket,
     google_storage_bucket_object.function_archive,
-    google_project_service.enable_services
+    google_project_service.enable_services,
+    google_parameter_manager_parameter.billing_state_parameter,
+    google_secret_manager_secret.notification_config_secret,
+    google_project_iam_member.default_sa_editor_keep,
+    google_project_iam_member.default_sa_run_invoker
   ]
 }
 
 # ──────────────────────────────────────────────────────────────
-# 5) IAM‐based email channels + 100% budget‐hit alerting
+# 5) IAM‐based email channels + Detachment & Re-attachment Alerting
 # ──────────────────────────────────────────────────────────────
 
-# Fetch raw IAM policy JSON
+# Fetch raw IAM policy JSON and Project metadata
 data "google_project_iam_policy" "current" {
   project = var.project_id
 }
@@ -295,154 +475,17 @@ data "google_project_iam_policy" "current" {
 locals {
   project_policy = jsondecode(data.google_project_iam_policy.current.policy_data)
 
-  billing_admins = flatten([
-    for b in local.project_policy.bindings :
-    b.members if b.role == "roles/billing.admin"
-  ])
+  # Extract user emails strictly from Project Owner IAM bindings (roles/owner)
+  iam_owner_emails = distinct(compact(flatten([
+    for binding in lookup(local.project_policy, "bindings", []) : [
+      for member in lookup(binding, "members", []) : (
+        length(regexall("^user:(.+@.+)$", member)) > 0 ?
+        regex("^user:(.+@.+)$", member)[0] : ""
+      )
+    ] if lookup(binding, "role", "") == "roles/owner"
+  ])))
 
-  project_owners = flatten([
-    for b in local.project_policy.bindings :
-    b.members if b.role == "roles/owner"
-  ])
+  # Use user-supplied var.notification_emails if provided; otherwise automatically fall back to Project Owners
+  target_emails = length(var.notification_emails) > 0 ? distinct(var.notification_emails) : local.iam_owner_emails
 
-  # Combine, keep only user principals, strip the "user:" prefix
-  notification_emails = distinct([
-    for p in concat(local.billing_admins, local.project_owners) :
-    replace(p, "user:", "")
-    if startswith(p, "user:")
-  ])
-}
-
-# One email channel per extracted principal
-resource "google_monitoring_notification_channel" "email" {
-  for_each     = toset(local.notification_emails)
-  display_name = "Budget Alert → ${each.key}"
-  type         = "email"
-  labels = {
-    email_address = each.key
-  }
-  # Some Monitoring resources support user_labels; notification_channel does in API,
-  # but provider support can vary. If supported in your provider version, uncomment:
-  # user_labels = local.do_not_delete_lbl
-  depends_on = [google_project_service.enable_services]
-}
-
-# Log‐based metric for the exact 100% warning
-resource "google_logging_metric" "budget_warning_100pct" {
-  name        = "budget_warning_100pct"
-  description = "Count of Cloud Function logs at 100% spend warning"
-  filter = <<-EOT
-    resource.type="cloud_run_revision"
-    AND
-    textPayload:"WARNING: You have reached 100% of your budget. Your project will be detached from the billing account imminently if spending continues."
-  EOT
-  # (Logging metric doesn't support user labels)
-  depends_on = [google_project_service.enable_services]
-}
-
-# Alert Policy fires immediately when metric > 0
-resource "google_monitoring_alert_policy" "budget_warning_policy" {
-  display_name = "Budget Hit 100% Warning"
-  combiner     = "OR"
-  severity     = "CRITICAL"
-
-  # Add user labels here
-  user_labels = local.do_not_delete_lbl
-
-  # Condition for Gen2 Functions (runs on Cloud Run)
-  conditions {
-    display_name = "100% Budget Warning (Cloud Run)"
-    condition_threshold {
-      filter = <<-EOT
-      resource.type="cloud_run_revision"
-      AND
-        metric.type="logging.googleapis.com/user/budget_warning_100pct"
-      EOT
-      comparison      = "COMPARISON_GT"
-      threshold_value = 0
-      duration        = "0s"
-      aggregations {
-        alignment_period   = "60s"
-        per_series_aligner = "ALIGN_COUNT"
-      }
-    }
-  }
-
-  notification_channels = [
-    for ch in google_monitoring_notification_channel.email : ch.id
-  ]
-  documentation {
-    mime_type = "text/markdown"
-    content   = <<-EOD
-
-# 🚨 Action Required: Project Billing Detached (Budget at 100%) 🚨
-
-Hello Team,
-
-Your Google Cloud project has reached **100%** of its allocated monthly budget. As a result, **billing has been automatically detached**.
-
-Please follow the steps below using the `reattach-billing.sh` script to safely restore services. This script is designed to re-link the billing account *and* prevent the automation from immediately detaching it again.
-
----
-
-## 📋 Prerequisites
-
-Before you begin, please ensure you have the following:
-
-1.  **Script Access:** You must have the `reattach-billing.sh` script on your local machine.
-2.  **Billing Account ID:** You will need the **Billing Account ID** (e.g., `0123-4567-8901`) you wish to re-attach.
-3.  **Required IAM Permissions:** Your user account must have:
-    * `roles/billing.projectManager` on the **Project**.
-    * `roles/billing.user` on the **target Billing Account**.
-4.  **CLI Setup:** Your Google Cloud SDK must be installed and authenticated:
-    ```bash
-    gcloud auth login
-    gcloud config set project your_project_id
-    ```
-
----
-
-## 🔧 Rollback Steps (Using the Script)
-
-1.  **Make the Script Executable**
-    (You only need to do this once)
-    ```bash
-    chmod +x reattach-billing.sh
-    ```
-
-2.  **Run the Script**
-    This command re-attaches billing non-interactively.
-    
-    > **Note:** Replace with your actual Billing Account ID when prompted. The `--skip-terraform` flag is recommended during this initial fix.
-
-    ```bash
-    ./reattach-billing.sh 
-    ```
-
-3.  **Verify the Output**
-    The script will print the final billing state. Please **confirm that the output shows `True`**:
-    ```text
-    Billing Enabled: True
-    ```
-
----
-
-## ⚠️ Next Steps: Prevent Recurrence
-
-Once billing is restored, you must update the budget to prevent this from happening again.
-
-1.  **Increase Budget Threshold:** Edit your budget threshold amount.
-2.  **Re-deploy:** Please rerun the deployment script to apply your changes.
-    ```bash
-    ./deploy.sh
-    ```
-
-If you encounter any issues, please contact the Evonence Cloud Infrastructure team.
-
-    EOD
-  }
-  depends_on = [
-    google_project_service.enable_services,
-    google_logging_metric.budget_warning_100pct
-  ]
 }

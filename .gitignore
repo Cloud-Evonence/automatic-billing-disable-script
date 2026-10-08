@@ -1,0 +1,37 @@
+# Terraform local files & states
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+*.tfstate.backup.*
+.terraform.tfstate.lock.info
+.terraform.lock.hcl
+
+# Variable definitions containing credentials or account IDs
+*.tfvars
+*.tfvars.json
+!*.example.tfvars
+!*.example.tfvars.json
+
+# Python caches and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+
+# Archives and generated zip packages
+*.zip
+*.tar.gz
+
+# Backup and temporary files
+*.bak
+script_backup_*/
+test.txt
+.DS_Store
+
+# IDE and local directories
+.windsurf/
+.max/
+.vscode/
+.idea/

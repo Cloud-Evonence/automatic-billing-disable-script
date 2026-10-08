@@ -1,0 +1,30 @@
+{
+  "project_id": "your-gcp-project-id",
+  "billing_account_id": "012345-6789AB-CDEF01",
+  "currency": "USD",
+  "budgets": {
+    "budget_1": {
+      "amount": 50,
+      "thresholds": [
+        0.75,
+        0.9,
+        0.95,
+        0.99
+      ]
+    },
+    "budget_2": {
+      "amount": 100,
+      "thresholds": [
+        0.75,
+        0.9,
+        0.95,
+        0.99
+      ]
+    }
+  },
+  "notification_emails": [
+    "alerts@yourcompany.com",
+    "devops@yourcompany.com"
+  ],
+  "default_sa_editor_mode": "keep"
+}

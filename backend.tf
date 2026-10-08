@@ -1,7 +1,5 @@
-#backend.tf
+# backend.tf
 
 terraform {
-  backend "gcs" {
-    prefix = "terraform/state"
-}
+  backend "local" {}
 }
