@@ -49,7 +49,7 @@ sequenceDiagram
    * `limits`: All configured budget limit values.
    * `status`: Current status (`active`, `detaching`, or `detached`).
    * `month`: The billing month corresponding to the state.
-4. **Monthly Reset**: If the function detects the current calendar month is newer than the state's `month`, it resets the `active_limit` back to the lowest budget limit and sets the status to `active` .
+4. **Monthly Reset**: If the function detects the current calendar month is newer than the state's `month`, it resets the `active_limit` back to the lowest budget limit and sets the status to `active`.
 5. **Manual Reattachment Auto-Advance**: If the billing account was manually reattached in the GCP Console but a budget threshold alert fires, the function detects that billing is enabled, resets the status to `active`, and automatically advances the `active_limit` to the next configured budget limit threshold.
 6. **100% Alert Warning**: If spend exceeds the `active_limit`, the function logs a warning. A **GCP Logging Metric** picks up this log, which triggers a **Monitoring Alert Policy** sending email notifications to all project owners and billing administrators.
 7. **Safety Lock & Delay**: Before disabling billing, the function sets the Parameter Manager state to `detaching` (locking the state to prevent duplicate concurrent executions). It then sleeps for **2 minutes** as a cooldown/safety delay to allow any final logging or cleanups to complete.
@@ -161,13 +161,51 @@ Edit `budgets.tfvars.json` with your project details:
 #### A. Google Chat Alerts (Optional)
 To receive alerts in a Google Chat Space:
 1. Open your Google Chat Space > Click the space name > **Apps & integrations** > **Manage webhooks**.
-2. Create a webhook and copy the URL.
-3. Pass it via `variables.tf` (`google_chat_webhook_url`), environment variable `GOOGLE_CHAT_WEBHOOK_URL`, or Secret Manager (`do-not-delete-billing-notifications`).
+2. Create a webhook and copy the incoming webhook URL.
+3. Provide the URL via any of these methods:
+   * **In `terraform.tfvars` or `variables.tf`** (around line 109):
+     ```hcl
+     google_chat_webhook_url = "https://chat.googleapis.com/v1/spaces/XXXXX/messages?key=YYYYY&token=ZZZZZ"
+     ```
+   * **Via environment variable before deploying**:
+     ```bash
+     export GOOGLE_CHAT_WEBHOOK_URL="https://chat.googleapis.com/v1/spaces/..."
+     ```
+   * **Directly in Secret Manager**: update the `google_chat_webhook_url` field in secret `do-not-delete-billing-notifications`.
 
-#### B. Direct SMTP Email Alerts (Optional)
+#### B. Direct SMTP / Gmail Email Alerts (Optional)
 To send email alerts directly via SMTP (e.g. Gmail / Google Workspace):
-1. In your Google Account, enable 2-Step Verification and generate a **16-character App Password** (under Security > App Passwords).
-2. When running `./deploy.sh`, you will be prompted for this App Password, or you can configure `smtp_username`, `smtp_sender_email`, and `smtp_key` in Secret Manager.
+1. In your Google Account, enable **2-Step Verification** and generate a **16-character App Password** (under *Security > 2-Step Verification > App Passwords*).
+2. Configure credentials using any of these methods:
+   * **Interactive `./deploy.sh` (Recommended)**: You will be securely prompted for the App Password during script execution.
+   * **In `terraform.tfvars` or `variables.tf`** (lines 115–150):
+     ```hcl
+     smtp_host         = "smtp.gmail.com"
+     smtp_port         = 587
+     smtp_username     = "your-email@company.com"
+     smtp_sender_email = "your-email@company.com"
+     smtp_key          = "xxxx xxxx xxxx xxxx" # 16-character App Password
+     smtp_use_tls      = true
+     ```
+   * **Via environment variables before running `./deploy.sh`**:
+     ```bash
+     export SMTP_HOST="smtp.gmail.com"
+     export SMTP_PORT="587"
+     export SMTP_USERNAME="your-email@company.com"
+     export SMTP_SENDER_EMAIL="your-email@company.com"
+     ```
+   * **Directly in Secret Manager**: update secret `do-not-delete-billing-notifications` with JSON:
+     ```json
+     {
+       "google_chat_webhook_url": "...",
+       "smtp_host": "smtp.gmail.com",
+       "smtp_port": 587,
+       "smtp_username": "your-email@company.com",
+       "smtp_key": "your-16-char-app-password",
+       "smtp_sender_email": "your-email@company.com",
+       "smtp_use_tls": true
+     }
+     ```
 
 ---
 
